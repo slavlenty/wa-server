@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline'"/> 
+    <link rel="stylesheet" href="css/style.css" />
+    <title>Work Assist</title>
+  </head>
+  <body>
+    <div class="main hide" id="main">
+      <div class="flexbox">
+        <div class="top"></div>
+        <div class="flexbox-row active">
+          <div class="left"></div>
+          <div class="item">Home</div>
+          <div class="right"></div>
+        </div>
+        <div class="bottom"></div>
+        <div class="flexbox-row">
+          <div class="left"></div>
+          <div class="item">Idea</div>
+          <div class="right"></div>
+        </div>
+        <div class="bottom"></div>
+        <div class="flexbox-row">
+          <div class="left"></div>
+          <div class="item">People</div>
+          <div class="right"></div>
+        </div>
+        <div class="bottom"></div>
+        <button onclick="signIn()">Sign In</button>
+      </div>
+      <div class="content show">
+        <div class="top"></div>
+        <div class="header">
+            <img class="cti-element" src="images/vsymbol.png" width="20" height="20"></img>
+            <b>Agent Work Assist</b>
+            <div class="cti-element" id="user"></div>
+        </div>
+        <div class="cti">
+            <div class="cti-details">
+                <div class="cti-elements">
+                <div class="cti-element">icon</div>
+                <div class="cti-element" id="call-state"></div>
+                <div class="cti-separator"></div>
+                <div class="cti-element" id="call-party"></div>
+            </div>
+            </div>
+            <div class="cti-element" id="call-time">00:00:00</div>
+        </div>
+
+        <div class="notification-area" id="detail">  
+            Interesting stuff happens here!
+        </div>
+        <div class="bottom"></div>
+      </div>
+      <div class="content">
+        <h1>Idea</h1>
+      </div>
+      <div class="content">
+        <h1>People</h1>
+      </div>
+    </div>
+  </body>
+ <script src="js/tabs.js"></script> 
+  <!-- msal.min.js can be used in the place of msal.js; included msal.js to make debug easy -->
+  <script type="text/javascript" src="js/msal-browser.js"></script> 
+  <script type="text/javascript" src="js/authConfig.js"></script>
+
+  <script src="js/socket.io.js"></script> 
+  <script>
+    let theusername
+    function showWelcomeMessage(account) {
+      theusername = account.idTokenClaims.preferred_username
+      document.getElementById("user").innerHTML = `User ${account.name}`
+      document.getElementById("main").classList.remove('hide')
+
+      window.api.send("toMain", {message: "signedin"})
+
+      getTokenRedirect(tokenRequest).then(response => {
+        connectSocket(response.accessToken)
+      })
+    }
+    
+
+    function connectSocket(accessToken) {
+      socket = io("http://localhost:59080", {
+        query: {
+          "token" : accessToken
+        }
+      });
+
+      socket.on('connect', function(){
+        console.log("connected")
+        socket.emit("agent", theusername)
+      })
+      socket.on('event', function(data){
+        console.log("Event Data:" + data)
+        params = data.split(':')
+        if (params[0] == "call") {
+          handleCallEvent(params)
+        } else if (params[0] == "event") {
+          handleEvent(params)
+        }
+      })
+      socket.on('connect_error', function(err){
+        console.log("connect Error :" + err)
+      })
+      socket.on('disconnect', function(reason){console.log("disconnect " + reason)})
+    }
+
+    if(window.api)  {
+    window.api.receive("fromMain", (data) => {
+            console.log(`Received ${data} from main process`)
+            //socket.emit("event", data)
+            if (data == "Signout") {
+//              sessionStorage.setItem('visited', "false")
+              signOut()
+            }
+      });
+    }
+
+    function handleEvent(params) {
+      if (params.length > 1) {
+        value = document.getElementById("detail").innerHTML
+        document.getElementById("detail").innerHTML = "<div>" + params[1] + "</div>" + value
+        if (window.api) {
+           // Create a notification object 
+
+          var canvas = document.createElement("canvas");
+          var context = canvas.getContext('2d');
+
+          var base_image = new Image();
+          base_image.onload = function(){
+              context.drawImage(base_image, 0, 0);
+
+              var pngDataURL = canvas.toDataURL(); 
+
+              const notification = {
+                message: "notification",  
+                title: "Work Assist Notification",
+                body: params[1],
+                silent: params[2] == "true" ? true : false,
+                icon: pngDataURL,
+              };
+        
+              window.api.send("toMain", notification)
+
+          }
+          switch(params[3]) {
+            case "acoustic" :
+              iconsrc = 'http://localhost:3000/images/acoustic.png';
+              break;
+            case "vsymbol" :
+            default : 
+              iconsrc = 'http://localhost:3000/images/vsymbol.png'
+              break;
+          }
+
+          base_image.src = iconsrc;
+        }
+      }
+    }
+
+    
+    let state = "idle"
+    let start = new Date()
+
+    function changeState(newState){
+      console.log("new state " + newState)
+      state = newState
+      start = new Date()
+      updateCallTime()
+    }
+
+    function handleCallEvent(params) {
+      if (params[1] == "start") {
+        changeState("connected")
+        document.getElementById("call-state").innerText = "On Call"
+        document.getElementById("call-party").innerText = params[2]
+      }
+      else if (params[1] == "stop") {
+        changeState("idle")
+        document.getElementById("call-state").innerText = "Idle"
+        document.getElementById("call-party").innerText = ""
+      }
+    }
+
+      setInterval(() => {
+        updateCallTime()
+      },2000)
+
+      function updateCallTime() {
+        if (state == "idle") {
+          document.getElementById("call-time").innerText = "00:00:00"  
+        } else {
+          now = new Date()
+          difference = new Date(now.getTime() - start.getTime())
+          document.getElementById("call-time").innerText = secondsToDhms(difference/1000)
+        }
+      }
+
+      //Show days, hours, mins, sec
+      function secondsToDhms(seconds) {
+        seconds = +seconds
+        const d = Math.floor(seconds / (3600 * 24))
+        const h = Math.floor((seconds % (3600 * 24)) / 3600)
+        const m = Math.floor((seconds % 3600) / 60)
+        const s = Math.floor(seconds % 60)
+        return ('00'+h).slice(-2)+':'+('00'+m).slice(-2)+':'+('00'+s).slice(-2)
+      }
+   
+  </script>
+  
+  <script type="text/javascript" src="js/authRedirect.js"></script>
+  <script>
+    window.onload = function() {
+      console.log("window on load")
+      //if (sessionStorage.getItem('visited') == null || sessionStorage.getItem('visited') == "false" )  {
+      //  console.log("signing in..")
+       // sessionStorage.setItem('visited', "true")
+        signIn()
+      //}
+    }
+  </script>
+
+</html>
