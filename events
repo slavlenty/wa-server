@@ -1,0 +1,5 @@
+a,Duane.Wright@verint.com,call:start:Joe Soap
+a,Duane.Wright@verint.com,call:stop
+a,Duane.Wright@verint.com,event:crosstalk:false:acoustic
+a,Duane.Wright@verint.com,event:silence:true:vsymbol
+a,Duane.Wright@verint.com,event:crosstalk:false:acoustic
